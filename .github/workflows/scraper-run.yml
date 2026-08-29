@@ -1,0 +1,98 @@
+name: 🕐 Scheduled Scraper Run
+
+on:
+  schedule:
+    # Executa diariamente às 09:00 UTC (06:00 BRT)
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      terms_override:
+        description: "Termos separados por vírgula (override do terms.json)"
+        required: false
+        type: string
+      max_results:
+        description: "Número máximo de resultados por termo"
+        required: false
+        default: "10"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    name: 🔍 Executar Scraper
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 📦 Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+
+      - name: 📥 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "."
+
+      - name: 🎭 Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      - name: 🔍 Run Scraper via Harness
+        id: scrape
+        run: |
+          if [ -n "${{ github.event.inputs.terms_override }}" ]; then
+            python -m harness.run_harness \
+              --terms "${{ github.event.inputs.terms_override }}" \
+              --output results/ \
+              --log-level INFO
+          else
+            python -m harness.run_harness \
+              --file terms.json \
+              --output results/ \
+              --log-level INFO
+          fi
+        continue-on-error: true
+
+      - name: 📊 Upload Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scraper-results-${{ github.run_number }}
+          path: results/
+          retention-days: 30
+
+      - name: 📝 Commit Results (optional)
+        if: steps.scrape.outcome == 'success'
+        run: |
+          git config user.name "WebScrapper Bot"
+          git config user.email "bot@webscrapper.local"
+          
+          # Criar branch de resultados
+          BRANCH="results/run-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          
+          # Copiar apenas sumários (não HTML raw)
+          mkdir -p archived_results
+          cp results/summary_*.json archived_results/ 2>/dev/null || true
+          cp results/report_*.md archived_results/ 2>/dev/null || true
+          
+          git add archived_results/
+          git commit -m "data: resultados da execução $(date +%Y-%m-%d)" || echo "Nada para commitar"
+          git push origin "$BRANCH" || echo "Push falhou"
+
+      - name: 🚨 Notify on Failure
+        if: steps.scrape.outcome == 'failure'
+        run: |
+          echo "::error::Scraper falhou! Verificar logs e resultados."
+          echo "Possíveis causas: CAPTCHA, mudança de layout, timeout"

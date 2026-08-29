@@ -1,0 +1,266 @@
+name: 🤖 Agentic CI/CD Loop
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      task_description:
+        description: "Descrição da tarefa para o agente"
+        required: true
+        type: string
+      skill:
+        description: "Skill a usar (run-scraper, debug-scraper, update-parser, validate-results)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  classify-and-execute:
+    name: 🤖 Classificar e Executar Tarefa
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'agent-task'))
+    timeout-minutes: 60
+
+    env:
+      MAX_ITERATIONS: 3
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          playwright install chromium --with-deps
+
+      - name: 🏷️ Classificar Tarefa
+        id: classify
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            SKILL="${{ github.event.inputs.skill || 'run-scraper' }}"
+            DESCRIPTION="${{ github.event.inputs.task_description }}"
+          else
+            # Classificar baseado nas labels da issue
+            LABELS="${{ join(github.event.issue.labels.*.name, ',') }}"
+            DESCRIPTION="${{ github.event.issue.title }}"
+            
+            if echo "$LABELS" | grep -q "parser-broken"; then
+              SKILL="update-parser"
+            elif echo "$LABELS" | grep -q "debug"; then
+              SKILL="debug-scraper"
+            elif echo "$LABELS" | grep -q "validate"; then
+              SKILL="validate-results"
+            else
+              SKILL="run-scraper"
+            fi
+          fi
+          
+          echo "skill=$SKILL" >> $GITHUB_OUTPUT
+          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+          echo "🏷️ Skill selecionada: $SKILL"
+          echo "📝 Descrição: $DESCRIPTION"
+
+      # ═══════════════════════════════════════
+      # ITERATION 1
+      # ═══════════════════════════════════════
+      - name: "🔄 Iteração 1 — Executar"
+        id: iter1
+        run: |
+          echo "═══ ITERAÇÃO 1/3 ═══"
+          echo "Skill: ${{ steps.classify.outputs.skill }}"
+          
+          case "${{ steps.classify.outputs.skill }}" in
+            "run-scraper")
+              python -m harness.run_harness --file terms.json --output results/ --log-level INFO
+              ;;
+            "update-parser")
+              # Buscar HTML de referência e rodar testes
+              python -m harness.run_harness --terms "python programming language" --output results/reference/ --max-retries 2 --log-level DEBUG
+              ;;
+            "debug-scraper")
+              python -m harness.run_harness --file terms.json --output results/debug/ --log-level DEBUG --max-retries 1
+              ;;
+            "validate-results")
+              python -m harness.run_harness --file terms.json --output results/ --log-level INFO
+              ;;
+          esac
+        continue-on-error: true
+
+      - name: "✅ Iteração 1 — Verificar"
+        id: verify1
+        if: always()
+        run: |
+          # Rodar testes
+          pytest tests/ -v --tb=short 2>&1 | tee test_output.txt
+          TEST_EXIT=$?
+          
+          if [ $TEST_EXIT -eq 0 ]; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+            echo "✅ Testes passaram na iteração 1"
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+            echo "❌ Testes falharam na iteração 1"
+          fi
+        continue-on-error: true
+
+      # ═══════════════════════════════════════
+      # ITERATION 2 (se necessário)
+      # ═══════════════════════════════════════
+      - name: "🔄 Iteração 2 — Re-executar com ajustes"
+        id: iter2
+        if: steps.verify1.outputs.passed != 'true' && steps.iter1.outcome == 'failure'
+        run: |
+          echo "═══ ITERAÇÃO 2/3 ═══"
+          echo "Ajustando parâmetros: aumentando delays e retries..."
+          
+          # Reexecutar com parâmetros mais conservadores
+          python -m harness.run_harness \
+            --file terms.json \
+            --output results/ \
+            --max-retries 3 \
+            --log-level DEBUG
+        continue-on-error: true
+
+      - name: "✅ Iteração 2 — Verificar"
+        id: verify2
+        if: steps.iter2.outcome != 'skipped'
+        run: |
+          pytest tests/ -v --tb=short 2>&1
+          if [ $? -eq 0 ]; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      # ═══════════════════════════════════════
+      # ITERATION 3 (última chance)
+      # ═══════════════════════════════════════
+      - name: "🔄 Iteração 3 — Última tentativa"
+        id: iter3
+        if: >
+          steps.verify1.outputs.passed != 'true' &&
+          steps.verify2.outputs.passed != 'true' &&
+          steps.iter2.outcome != 'skipped'
+        run: |
+          echo "═══ ITERAÇÃO 3/3 (FINAL) ═══"
+          python -m harness.run_harness \
+            --file terms.json \
+            --output results/ \
+            --max-retries 3 \
+            --log-level DEBUG
+        continue-on-error: true
+
+      - name: "✅ Iteração 3 — Verificar"
+        id: verify3
+        if: steps.iter3.outcome != 'skipped'
+        run: |
+          pytest tests/ -v --tb=short 2>&1
+          if [ $? -eq 0 ]; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      # ═══════════════════════════════════════
+      # RESULTADO FINAL
+      # ═══════════════════════════════════════
+      - name: 📊 Upload Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agentic-loop-results-${{ github.run_number }}
+          path: results/
+          retention-days: 14
+
+      - name: ✅ Criar PR se Sucesso
+        if: >
+          steps.verify1.outputs.passed == 'true' ||
+          steps.verify2.outputs.passed == 'true' ||
+          steps.verify3.outputs.passed == 'true'
+        run: |
+          git config user.name "WebScrapper Agent"
+          git config user.email "agent@webscrapper.local"
+          
+          BRANCH="agent/fix-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          
+          # Adicionar mudanças (se houver alterações no código)
+          git add -A
+          git diff --cached --quiet || {
+            git commit -m "🤖 fix: correção automática via agentic loop
+
+          Skill: ${{ steps.classify.outputs.skill }}
+          Issue: #${{ github.event.issue.number || 'manual' }}
+          Run: ${{ github.run_id }}"
+            
+            git push origin "$BRANCH"
+            
+            gh pr create \
+              --title "🤖 Auto-fix: ${{ steps.classify.outputs.description }}" \
+              --body "Correção automática gerada pelo Agentic CI/CD Loop.
+
+          **Skill utilizada**: \`${{ steps.classify.outputs.skill }}\`
+          **Issue**: #${{ github.event.issue.number || 'N/A' }}
+          **Iterações**: até 3" \
+              --base main \
+              --head "$BRANCH"
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 💬 Reportar na Issue
+        if: github.event_name == 'issues' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const v1 = '${{ steps.verify1.outputs.passed }}' === 'true';
+            const v2 = '${{ steps.verify2.outputs.passed }}' === 'true';
+            const v3 = '${{ steps.verify3.outputs.passed }}' === 'true';
+            const success = v1 || v2 || v3;
+            const iteration = v1 ? 1 : v2 ? 2 : v3 ? 3 : 'N/A';
+            
+            const body = success
+              ? `✅ **Tarefa concluída com sucesso!**\n\n- Skill: \`${{ steps.classify.outputs.skill }}\`\n- Iteração: ${iteration}/3\n- Run: [#${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\nUm PR foi criado automaticamente.`
+              : `❌ **Tarefa falhou após 3 iterações.**\n\n- Skill: \`${{ steps.classify.outputs.skill }}\`\n- Run: [#${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\nIntervenção manual necessária. Verifique os logs do workflow.`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
+            
+            if (success) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                state: 'closed',
+              });
+            }
+
+      - name: 🚨 Falha Final
+        if: >
+          steps.verify1.outputs.passed != 'true' &&
+          steps.verify2.outputs.passed != 'true' &&
+          steps.verify3.outputs.passed != 'true'
+        run: |
+          echo "::error::Agentic loop falhou após 3 iterações"
+          echo "Skill: ${{ steps.classify.outputs.skill }}"
+          echo "Intervenção manual necessária."
+          exit 1
