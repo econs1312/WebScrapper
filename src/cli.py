@@ -217,6 +217,41 @@ def validate(results_dir: Path) -> None:
             console.print(f"[red]❌ Erro ao validar {json_file.name}: {e}[/red]")
 
 
+@main.command()
+@click.option(
+    "--host",
+    "-h",
+    type=str,
+    default="127.0.0.1",
+    help="Host para vinculação do servidor web.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8000,
+    help="Porta para o servidor web.",
+)
+@click.option(
+    "--reload/--no-reload",
+    default=False,
+    help="Habilitar recarga automática (auto-reload) do servidor.",
+)
+def serve(host: str, port: int, reload: bool) -> None:
+    """🌐 Iniciar o servidor e painel web do WebScrapper."""
+    import uvicorn
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]🌐 WebScrapper Dashboard[/bold cyan]\n"
+            f"Interface web disponível em: [bold underline green]http://{host}:{port}[/bold underline green]\n"
+            f"Pressione [bold red]Ctrl+C[/bold red] para encerrar.",
+            border_style="cyan",
+        )
+    )
+    uvicorn.run("src.server:app", host=host, port=port, reload=reload)
+
+
 def _display_report(report: object) -> None:
     """Exibe o relatório formatado no terminal."""
     from src.models import HarnessReport

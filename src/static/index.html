@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebScrapper — Painel de Controle e Automação de Busca Google</title>
+  <meta name="description" content="Interface web moderna para scraping automatizado de resultados orgânicos do Google com Playwright stealth, validação em tempo real e exportação de dados.">
+  
+  <!-- Google Fonts: Outfit & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">🔍</div>
+        <div class="brand-info">
+          <h1>WebScrapper Control Center</h1>
+          <p>Serviço Autônomo de Coleta & Extração SERP Google</p>
+        </div>
+      </div>
+      
+      <div class="header-status">
+        <div class="status-badge" id="system-status-badge">
+          <span class="status-dot" id="system-status-dot"></span>
+          <span id="system-status-text">Backend Conectado</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Metrics Stats Row -->
+    <section class="stats-grid" aria-label="Métricas Principais">
+      <div class="stat-card" id="stat-card-terms">
+        <div class="stat-icon-wrapper" style="color: var(--primary);">📋</div>
+        <div>
+          <div class="stat-value" id="stat-total-terms">0</div>
+          <div class="stat-label">Termos na Fila</div>
+        </div>
+      </div>
+
+      <div class="stat-card" id="stat-card-results">
+        <div class="stat-icon-wrapper" style="color: var(--secondary);">📊</div>
+        <div>
+          <div class="stat-value" id="stat-total-results">0</div>
+          <div class="stat-label">Resultados Coletados</div>
+        </div>
+      </div>
+
+      <div class="stat-card" id="stat-card-rate">
+        <div class="stat-icon-wrapper" style="color: var(--success);">🎯</div>
+        <div>
+          <div class="stat-value" id="stat-success-rate">100%</div>
+          <div class="stat-label">Taxa de Sucesso</div>
+        </div>
+      </div>
+
+      <div class="stat-card" id="stat-card-state">
+        <div class="stat-icon-wrapper" style="color: var(--accent-violet);">⚡</div>
+        <div>
+          <div class="stat-value" id="stat-current-state" style="font-size: 1.2rem; text-transform: uppercase;">IDLE</div>
+          <div class="stat-label">Status da Raspagem</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Dashboard Grid -->
+    <main class="dashboard-grid">
+      
+      <!-- Left Column: Control Center & Activity -->
+      <section class="glass-card control-hero" id="section-control-center">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="card-title-icon">🚀</span>
+            <span>Painel de Disparo & Configuração</span>
+          </h2>
+          <span class="status-badge" id="badge-engine-type">Playwright Stealth</span>
+        </div>
+
+        <div class="control-actions">
+          <button id="btn-start-scrape" class="btn-primary">
+            <span>▶</span>
+            <span>Iniciar Raspagem Agora</span>
+          </button>
+
+          <button id="btn-stop-scrape" class="btn-danger" style="display: none;">
+            <span>⏹</span>
+            <span>Parar Coleta</span>
+          </button>
+
+          <button id="btn-validate-now" class="btn-secondary">
+            <span>✅</span>
+            <span>Validar Resultados</span>
+          </button>
+        </div>
+
+        <!-- Quick Settings Grid -->
+        <div class="config-grid">
+          <div class="config-item">
+            <label for="cfg-max-results">Max Resultados / Termo</label>
+            <input type="number" id="cfg-max-results" min="1" max="10" value="10">
+          </div>
+
+          <div class="config-item">
+            <label for="cfg-delay-min">Delay Min (segundos)</label>
+            <input type="number" id="cfg-delay-min" min="0" step="0.5" value="2.0">
+          </div>
+
+          <div class="config-item">
+            <label for="cfg-delay-max">Delay Max (segundos)</label>
+            <input type="number" id="cfg-delay-max" min="0" step="0.5" value="5.0">
+          </div>
+
+          <div class="config-item">
+            <label for="cfg-max-retries">Tentativas (Retries)</label>
+            <input type="number" id="cfg-max-retries" min="1" max="5" value="3">
+          </div>
+
+          <div class="config-item" style="justify-content: flex-end;">
+            <label class="toggle-wrapper" for="cfg-headless">
+              <span class="switch">
+                <input type="checkbox" id="cfg-headless" checked>
+                <span class="slider"></span>
+              </span>
+              <span style="font-size: 0.85rem; color: var(--text-main); font-weight: 500;">Modo Headless</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Real-time Progress Section -->
+        <div class="progress-box" id="progress-container">
+          <div class="progress-header">
+            <span id="progress-label">Aguardando início...</span>
+            <span id="progress-percentage-text">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progress-bar-fill"></div>
+          </div>
+        </div>
+
+        <!-- Live Activity Terminal -->
+        <div style="margin-top: 10px;">
+          <div class="card-header" style="padding-bottom: 8px; margin-bottom: 10px;">
+            <h3 class="card-title" style="font-size: 0.95rem;">
+              <span>💻</span>
+              <span>Terminal de Atividades ao Vivo</span>
+            </h3>
+            <button id="btn-clear-logs" class="btn-icon" title="Limpar logs" style="width: 28px; height: 28px; font-size: 12px;">🗑</button>
+          </div>
+          <div class="terminal-box" id="activity-terminal" role="log" aria-live="polite">
+            <div class="log-entry">
+              <span class="log-time">[00:00:00]</span>
+              <span class="log-msg-info">Sistema pronto. Adicione termos ou clique em "Iniciar Raspagem".</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Term Manager -->
+      <section class="glass-card" id="section-terms-manager">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="card-title-icon">🏷️</span>
+            <span>Gerenciador de Termos</span>
+          </h2>
+          <span class="status-badge" id="terms-counter-badge">5 termos</span>
+        </div>
+
+        <div class="terms-container">
+          <form id="form-add-term" class="terms-input-group" onsubmit="return false;">
+            <input 
+              type="text" 
+              id="input-new-term" 
+              class="term-input" 
+              placeholder="Digite um termo e pressione Enter..."
+              autocomplete="off"
+            >
+            <button type="submit" id="btn-add-term" class="btn-primary" style="padding: 12px 18px;">
+              <span>+ Adicionar</span>
+            </button>
+          </form>
+
+          <p style="font-size: 0.82rem; color: var(--text-dim);">
+            Os termos abaixo são sincronizados automaticamente com o arquivo <code>terms.json</code>:
+          </p>
+
+          <div class="terms-chips-area" id="terms-chips-area">
+            <!-- Dynamic Chips Injected by JS -->
+          </div>
+
+          <!-- History & Available Downloads -->
+          <div style="margin-top: 20px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+            <h3 class="card-title" style="font-size: 0.95rem; margin-bottom: 12px;">
+              <span>📁</span>
+              <span>Arquivos e Exportações Recentes</span>
+            </h3>
+            <div id="results-file-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto;">
+              <!-- Dynamic file downloads list -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- SERP Results Explorer Section -->
+    <section class="glass-card" id="section-results-explorer" style="margin-top: 28px;">
+      <div class="card-header">
+        <h2 class="card-title">
+          <span class="card-title-icon">🌐</span>
+          <span>Explorador de Resultados SERP</span>
+        </h2>
+        
+        <div class="results-header-actions">
+          <input 
+            type="search" 
+            id="input-filter-results" 
+            class="filter-input" 
+            placeholder="🔍 Filtrar por título, URL..."
+          >
+          <button id="btn-refresh-results" class="btn-secondary" style="padding: 8px 14px; font-size: 0.85rem;">
+            <span>🔄 Atualizar</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="results-view-container">
+        <div class="results-list" id="results-cards-list">
+          <div style="text-align: center; padding: 40px; color: var(--text-dim);">
+            <div style="font-size: 32px; margin-bottom: 10px;">🔍</div>
+            <p>Nenhum resultado carregado ainda. Inicie uma raspagem para visualizar os dados da SERP.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Data Quality & Validation Details Panel -->
+    <section class="glass-card validation-card" id="section-validation-panel" style="display: none; margin-top: 28px;">
+      <div class="card-header">
+        <h2 class="card-title">
+          <span class="card-title-icon">🛡️</span>
+          <span>Relatório de Validação & Integridade de Dados</span>
+        </h2>
+        <span id="validation-health-badge" class="status-badge">Validado</span>
+      </div>
+      <div id="validation-details-content">
+        <!-- Injected by JS -->
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Toast Notification System -->
+  <div id="toast-container" aria-live="assertive"></div>
+
+  <!-- Application Logic -->
+  <script src="js/app.js"></script>
+</body>
+</html>
