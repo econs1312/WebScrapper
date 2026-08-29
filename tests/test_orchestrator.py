@@ -21,6 +21,7 @@ class TestSearchOrchestrator:
     @pytest.fixture()
     def config(self, tmp_path: Path) -> ScrapperConfig:
         return ScrapperConfig(
+            search_engine="google",
             max_results=10,
             max_retries=2,
             search_delay_min=0.01,
@@ -67,13 +68,14 @@ class TestSearchOrchestrator:
         assert terms == ["python", "rust"]
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_search_term_success(
         self,
         orchestrator: SearchOrchestrator,
         serp_html: str,
     ) -> None:
         """Deve retornar SUCCESS quando encontra 10 resultados."""
-        orchestrator.provider.search = AsyncMock(return_value=serp_html)
+        orchestrator.provider.search_raw = AsyncMock(return_value=serp_html)
         orchestrator.provider.start = AsyncMock()
         orchestrator.provider.stop = AsyncMock()
         orchestrator.config.ensure_dirs()
@@ -91,8 +93,11 @@ class TestSearchOrchestrator:
         orchestrator: SearchOrchestrator,
     ) -> None:
         """Deve retornar FAILED quando detecta CAPTCHA após todas as tentativas."""
+        orchestrator.config.search_engine = "google"
+        from src.search_provider import GoogleSearchProvider
+        orchestrator.provider = GoogleSearchProvider(orchestrator.config)
         captcha_html = (FIXTURES_DIR / "google_captcha.html").read_text(encoding="utf-8")
-        orchestrator.provider.search = AsyncMock(return_value=captcha_html)
+        orchestrator.provider.search_raw = AsyncMock(return_value=captcha_html)
         orchestrator.provider.start = AsyncMock()
         orchestrator.provider.stop = AsyncMock()
         orchestrator.config.ensure_dirs()
@@ -108,8 +113,11 @@ class TestSearchOrchestrator:
         orchestrator: SearchOrchestrator,
     ) -> None:
         """Deve retornar SUCCESS com 0 resultados quando Google não encontra nada."""
+        orchestrator.config.search_engine = "google"
+        from src.search_provider import GoogleSearchProvider
+        orchestrator.provider = GoogleSearchProvider(orchestrator.config)
         no_results_html = (FIXTURES_DIR / "google_no_results.html").read_text(encoding="utf-8")
-        orchestrator.provider.search = AsyncMock(return_value=no_results_html)
+        orchestrator.provider.search_raw = AsyncMock(return_value=no_results_html)
         orchestrator.provider.start = AsyncMock()
         orchestrator.provider.stop = AsyncMock()
         orchestrator.config.ensure_dirs()
@@ -126,7 +134,7 @@ class TestSearchOrchestrator:
         serp_html: str,
     ) -> None:
         """Deve processar múltiplos termos e gerar relatório agregado."""
-        orchestrator.provider.search = AsyncMock(return_value=serp_html)
+        orchestrator.provider.search_raw = AsyncMock(return_value=serp_html)
         orchestrator.provider.start = AsyncMock()
         orchestrator.provider.stop = AsyncMock()
         orchestrator.config.ensure_dirs()
@@ -145,7 +153,7 @@ class TestSearchOrchestrator:
         serp_html: str,
     ) -> None:
         """Deve exportar resultados em JSON e CSV."""
-        orchestrator.provider.search = AsyncMock(return_value=serp_html)
+        orchestrator.provider.search_raw = AsyncMock(return_value=serp_html)
         orchestrator.provider.start = AsyncMock()
         orchestrator.provider.stop = AsyncMock()
         orchestrator.config.ensure_dirs()
@@ -157,4 +165,5 @@ class TestSearchOrchestrator:
 
         assert len(json_files) >= 1, "JSON report não foi gerado"
         assert len(csv_files) >= 1, "CSV results não foi gerado"
+
 

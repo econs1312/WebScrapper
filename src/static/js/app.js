@@ -175,10 +175,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // -------------------------------------------------------------------------
   // Scraping Controls & Real-time Polling
   // -------------------------------------------------------------------------
+  const cfgEngineSelect = document.getElementById('cfg-engine');
+  const badgeEngineType = document.getElementById('badge-engine-type');
+
+  if (cfgEngineSelect && badgeEngineType) {
+    cfgEngineSelect.addEventListener('change', (e) => {
+      badgeEngineType.textContent = e.target.value === 'duckduckgo' ? 'DuckDuckGo Engine' : 'Playwright Stealth';
+    });
+    badgeEngineType.textContent = cfgEngineSelect.value === 'duckduckgo' ? 'DuckDuckGo Engine' : 'Playwright Stealth';
+  }
+
   btnStartScrape.addEventListener('click', async () => {
+    const engine = cfgEngineSelect ? cfgEngineSelect.value : 'duckduckgo';
     const maxResults = parseInt(document.getElementById('cfg-max-results').value, 10) || 10;
-    const delayMin = parseFloat(document.getElementById('cfg-delay-min').value) || 2.0;
-    const delayMax = parseFloat(document.getElementById('cfg-delay-max').value) || 5.0;
+    const delayMin = parseFloat(document.getElementById('cfg-delay-min').value) || 1.0;
+    const delayMax = parseFloat(document.getElementById('cfg-delay-max').value) || 3.0;
     const maxRetries = parseInt(document.getElementById('cfg-max-retries').value, 10) || 3;
     const headless = document.getElementById('cfg-headless').checked;
 
@@ -188,6 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          engine: engine,
           max_results: maxResults,
           delay_min: delayMin,
           delay_max: delayMax,

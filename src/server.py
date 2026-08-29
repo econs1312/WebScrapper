@@ -111,10 +111,11 @@ class TermsUpdateRequest(BaseModel):
 
 
 class ScrapeStartRequest(BaseModel):
+    engine: str = Field(default="duckduckgo", description="Mecanismo de busca: 'duckduckgo' ou 'google'")
     terms: list[str] | None = Field(default=None, description="Termos específicos ou None para terms.json")
     max_results: int = Field(default=10, ge=1, le=10)
-    delay_min: float = Field(default=2.0, ge=0.0)
-    delay_max: float = Field(default=5.0, ge=0.0)
+    delay_min: float = Field(default=1.0, ge=0.0)
+    delay_max: float = Field(default=3.0, ge=0.0)
     headless: bool = Field(default=True)
     max_retries: int = Field(default=3, ge=1, le=5)
     save_html: bool = Field(default=True)
@@ -292,6 +293,7 @@ async def start_scraping(request: ScrapeStartRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="A lista de termos está vazia.")
 
     config = ScrapperConfig(
+        search_engine=request.engine,
         max_results=request.max_results,
         search_delay_min=request.delay_min,
         search_delay_max=request.delay_max,

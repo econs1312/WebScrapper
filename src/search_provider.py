@@ -1,12 +1,18 @@
-"""Provider de busca no Google usando Playwright em modo stealth."""
+"""Provedores de busca (Google com Playwright e DuckDuckGo com HTTPX)."""
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import logging
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, unquote, urlparse
 
+import httpx
+from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+
+from src.models import SearchResult
 
 if TYPE_CHECKING:
     from src.config import ScrapperConfig
@@ -14,11 +20,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class GoogleSearchProvider:
-    """Busca termos no Google usando Playwright com técnicas de stealth."""
+class BaseSearchProvider(abc.ABC):
+    """Interface abstrata para provedores de busca."""
 
     def __init__(self, config: ScrapperConfig) -> None:
         self.config = config
+
+    @abc.abstractmethod
+    async def start(self) -> None:
+        """Inicializa conexões ou navegadores necessários."""
+        pass
+
+    @abc.abstractmethod
+    async def stop(self) -> None:
+        """Encerra recursos."""
+        pass
+
+    @abc.abstractmethod
+    async def search_raw(self, term: str) -> str:
+        """Retorna o HTML raw da página de resultados."""
+        pass
+
+    async def __aenter__(self) -> BaseSearchProvider:
+        await self.start()
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.stop()
+
+
+class GoogleSearchProvider(BaseSearchProvider):
+    """Busca termos no Google usando Playwright com técnicas de stealth."""
+
+    def __init__(self, config: ScrapperConfig) -> None:
+        super().__init__(config)
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
 
@@ -39,29 +74,17 @@ class GoogleSearchProvider:
             color_scheme="light",
         )
 
-        # Injetar scripts stealth para mascarar detecção de automação
         await context.add_init_script("""
-            // Remover propriedade webdriver
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined,
             });
-
-            // Mascarar plugins
             Object.defineProperty(navigator, 'plugins', {
                 get: () => [1, 2, 3, 4, 5],
             });
-
-            // Mascarar linguagens
             Object.defineProperty(navigator, 'languages', {
                 get: () => ['pt-BR', 'pt', 'en-US', 'en'],
             });
-
-            // Chrome runtime mock
-            window.chrome = {
-                runtime: {},
-            };
-
-            // Permissions mock
+            window.chrome = { runtime: {} };
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) =>
                 parameters.name === 'notifications'
@@ -95,84 +118,168 @@ class GoogleSearchProvider:
             await self._browser.close()
         logger.info("Browser Playwright encerrado")
 
-    async def search(self, term: str) -> str:
-        """
-        Busca um termo no Google e retorna o HTML da página de resultados.
-
-        Args:
-            term: Termo de busca.
-
-        Returns:
-            HTML raw da página de resultados do Google.
-
-        Raises:
-            RuntimeError: Se o browser não estiver iniciado.
-            TimeoutError: Se a página não carregar no tempo limite.
-        """
+    async def search_raw(self, term: str) -> str:
+        """Busca um termo no Google e retorna o HTML."""
         if not self._context:
             raise RuntimeError("Browser não iniciado. Chame start() primeiro.")
 
         page: Page = await self._context.new_page()
-
         try:
             search_url = f"{self.config.google_base_url}?q={term}&num={self.config.max_results}&hl=pt-BR"
-            logger.info("Buscando: '%s' → %s", term, search_url)
+            logger.info("Buscando no Google: '%s' → %s", term, search_url)
 
-            # Navegar para a página de busca
             await page.goto(
                 search_url,
                 wait_until="domcontentloaded",
                 timeout=self.config.request_timeout,
             )
 
-            # Esperar pelos resultados orgânicos
-            # Tentar múltiplos seletores (o Google muda frequentemente)
-            selectors = [
-                "#search",
-                "#rso",
-                "div[data-async-context]",
-                "div.g",
-            ]
-
-            result_found = False
+            selectors = ["#search", "#rso", "div[data-async-context]", "div.g"]
             for selector in selectors:
                 try:
                     await page.wait_for_selector(selector, timeout=10000)
-                    result_found = True
-                    logger.debug("Seletor encontrado: %s", selector)
                     break
                 except Exception:
                     continue
 
-            if not result_found:
-                logger.warning(
-                    "Nenhum seletor de resultados encontrado para '%s'. "
-                    "Possível CAPTCHA ou bloqueio.",
-                    term,
-                )
-
-            # Scroll para carregar todos os resultados (lazy loading)
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(1)
-
-            # Extrair HTML completo
-            html_content = await page.content()
-            logger.info(
-                "HTML extraído para '%s' (%d bytes)",
-                term,
-                len(html_content),
-            )
-
-            return html_content
-
+            await asyncio.sleep(0.5)
+            return await page.content()
         finally:
             await page.close()
 
-    async def __aenter__(self) -> GoogleSearchProvider:
-        """Suporte a context manager async."""
-        await self.start()
-        return self
+    async def search(self, term: str) -> str:
+        """Alias de compatibilidade."""
+        return await self.search_raw(term)
 
-    async def __aexit__(self, *args: object) -> None:
-        """Cleanup do context manager."""
-        await self.stop()
+
+class DuckDuckGoSearchProvider(BaseSearchProvider):
+    """
+    Busca termos no DuckDuckGo via requisições HTTP diretas (sem CAPTCHAs e super rápido).
+    """
+
+    def __init__(self, config: ScrapperConfig) -> None:
+        super().__init__(config)
+        self._client: httpx.AsyncClient | None = None
+
+    async def start(self) -> None:
+        """Inicializa o cliente HTTP assíncrono."""
+        self._client = httpx.AsyncClient(
+            timeout=float(self.config.request_timeout / 1000),
+            follow_redirects=True,
+            headers={
+                "User-Agent": self.config.get_random_user_agent(),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            },
+        )
+        logger.info("DuckDuckGo HTTP Provider inicializado")
+
+    async def stop(self) -> None:
+        """Encerra o cliente HTTP."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+        logger.info("DuckDuckGo HTTP Provider encerrado")
+
+    async def search_raw(self, term: str) -> str:
+        """Executa a busca no DuckDuckGo HTML e retorna o HTML raw."""
+        if not self._client:
+            raise RuntimeError("Cliente HTTP não iniciado. Chame start() primeiro.")
+
+        url = self.config.duckduckgo_base_url
+        logger.info("Buscando no DuckDuckGo: '%s' → %s", term, url)
+
+        # O DuckDuckGo HTML aceita POST com form-data
+        response = await self._client.post(url, data={"q": term, "b": ""})
+        response.raise_for_status()
+        return response.text
+
+    def parse_results(self, html: str, max_results: int = 10) -> list[SearchResult]:
+        """Extrai os resultados orgânicos do HTML do DuckDuckGo."""
+        soup = BeautifulSoup(html, "lxml")
+        results: list[SearchResult] = []
+        seen_urls: set[str] = set()
+
+        # Selecionar blocos de resultados (ignorando blocos de anúncios)
+        result_elements = soup.select("div.result.results_links, div.web-result, div.result")
+        position = 0
+
+        for el in result_elements:
+            if position >= max_results:
+                break
+
+            # Pular anúncios
+            classes = el.get("class", [])
+            if any("ad" in c.lower() for c in classes) or el.select_one(".badge--ad, .result__badge--ad"):
+                continue
+
+            # Link e Título
+            link_el = el.select_one("a.result__url, a.result__a, a.result__snippet")
+            title_el = el.select_one("a.result__a, h2.result__title, a.result__title")
+
+            if not link_el:
+                continue
+
+            raw_href = link_el.get("href", "")
+            clean_url = self._extract_clean_url(str(raw_href))
+
+            # Ignorar URLs vazias, duplicadas ou de anúncios (y.js / aclick)
+            if not clean_url or clean_url in seen_urls:
+                continue
+            if "duckduckgo.com/y.js" in clean_url or "bing.com/aclick" in clean_url:
+                continue
+
+            title = title_el.get_text(strip=True) if title_el else ""
+            if not title:
+                continue
+
+            # Snippet
+            snippet_el = el.select_one("a.result__snippet, div.result__snippet")
+            snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+            position += 1
+            seen_urls.add(clean_url)
+            results.append(SearchResult(
+                position=position,
+                title=title,
+                url=clean_url,
+                snippet=snippet,
+            ))
+
+        return results
+
+    @staticmethod
+    def _extract_clean_url(href: str) -> str:
+        """Limpa links com redirecionamento //duckduckgo.com/l/?uddg=..."""
+        if not href:
+            return ""
+
+        if href.startswith("//"):
+            href = "https:" + href
+
+        if "duckduckgo.com/l/?" in href:
+            parsed = urlparse(href)
+            query = parse_qs(parsed.query)
+            if "uddg" in query and query["uddg"]:
+                return unquote(query["uddg"][0])
+
+        if href.startswith("http"):
+            # Evitar links diretos de tracking de anúncio
+            if "duckduckgo.com/y.js" in href or "bing.com/aclick" in href:
+                return ""
+            return href
+
+        return ""
+
+    async def search(self, term: str) -> str:
+        """Alias de compatibilidade."""
+        return await self.search_raw(term)
+
+
+def create_search_provider(config: ScrapperConfig) -> BaseSearchProvider:
+    """Factory para instanciar o provedor de busca configurado."""
+    engine = config.search_engine.lower().strip()
+    if engine in ["google"]:
+        return GoogleSearchProvider(config)
+    return DuckDuckGoSearchProvider(config)

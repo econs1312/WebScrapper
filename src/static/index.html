@@ -104,22 +104,30 @@
         <!-- Quick Settings Grid -->
         <div class="config-grid">
           <div class="config-item">
-            <label for="cfg-max-results">Max Resultados / Termo</label>
+            <label for="cfg-engine">Mecanismo de Busca</label>
+            <select id="cfg-engine" style="font-weight: 600; color: var(--primary);">
+              <option value="duckduckgo" selected>🦆 DuckDuckGo (Sem CAPTCHA)</option>
+              <option value="google">🔍 Google (Playwright Stealth)</option>
+            </select>
+          </div>
+
+          <div class="config-item">
+            <label for="cfg-max-results">Max Resultados</label>
             <input type="number" id="cfg-max-results" min="1" max="10" value="10">
           </div>
 
           <div class="config-item">
-            <label for="cfg-delay-min">Delay Min (segundos)</label>
-            <input type="number" id="cfg-delay-min" min="0" step="0.5" value="2.0">
+            <label for="cfg-delay-min">Delay Min (s)</label>
+            <input type="number" id="cfg-delay-min" min="0" step="0.5" value="1.0">
           </div>
 
           <div class="config-item">
-            <label for="cfg-delay-max">Delay Max (segundos)</label>
-            <input type="number" id="cfg-delay-max" min="0" step="0.5" value="5.0">
+            <label for="cfg-delay-max">Delay Max (s)</label>
+            <input type="number" id="cfg-delay-max" min="0" step="0.5" value="3.0">
           </div>
 
           <div class="config-item">
-            <label for="cfg-max-retries">Tentativas (Retries)</label>
+            <label for="cfg-max-retries">Retries</label>
             <input type="number" id="cfg-max-retries" min="1" max="5" value="3">
           </div>
 
@@ -129,7 +137,7 @@
                 <input type="checkbox" id="cfg-headless" checked>
                 <span class="slider"></span>
               </span>
-              <span style="font-size: 0.85rem; color: var(--text-main); font-weight: 500;">Modo Headless</span>
+              <span style="font-size: 0.85rem; color: var(--text-main); font-weight: 500;">Headless</span>
             </label>
           </div>
         </div>

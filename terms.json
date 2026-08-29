@@ -1,14 +1,13 @@
 {
   "terms": [
-    "python web scraping tutorial",
-    "melhores frameworks python 2025",
-    "como automatizar buscas no google",
-    "playwright python headless browser",
-    "beautifulsoup4 parse html guide"
+    "inovação",
+    "sandbox",
+    "inteligência artificial"
   ],
   "metadata": {
     "description": "Lista de termos de busca para o WebScrapper",
     "created_at": "2026-08-28",
-    "version": "1.0"
+    "version": "1.0",
+    "updated_at": "2026-08-28T22:27:57.743257"
   }
 }

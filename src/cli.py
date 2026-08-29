@@ -7,6 +7,12 @@ import logging
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import click
 from rich.console import Console
 from rich.logging import RichHandler
@@ -17,7 +23,7 @@ from src.config import ScrapperConfig
 from src.models import SearchStatus
 from src.orchestrator import SearchOrchestrator
 
-console = Console()
+console = Console(highlight=False)
 
 
 def setup_logging(level: str, log_file: Path | None = None) -> None:
@@ -56,6 +62,12 @@ def main() -> None:
 
 @main.command()
 @click.option(
+    "--engine", "-e",
+    type=click.Choice(["duckduckgo", "google"], case_sensitive=False),
+    default="duckduckgo",
+    help="Mecanismo de busca: 'duckduckgo' (rápido/sem CAPTCHA) ou 'google'.",
+)
+@click.option(
     "--terms", "-t",
     type=str,
     default=None,
@@ -83,13 +95,13 @@ def main() -> None:
 @click.option(
     "--delay-min",
     type=float,
-    default=2.0,
+    default=1.0,
     help="Delay mínimo entre buscas (segundos).",
 )
 @click.option(
     "--delay-max",
     type=float,
-    default=5.0,
+    default=3.0,
     help="Delay máximo entre buscas (segundos).",
 )
 @click.option(
@@ -109,6 +121,7 @@ def main() -> None:
     help="Nível de log.",
 )
 def search(
+    engine: str,
     terms: str | None,
     terms_file: Path | None,
     output: Path,
@@ -119,7 +132,7 @@ def search(
     save_html: bool,
     log_level: str,
 ) -> None:
-    """🔎 Buscar termos no Google e extrair resultados."""
+    """🔎 Buscar termos no DuckDuckGo ou Google e extrair resultados."""
     if not terms and not terms_file:
         console.print(
             "[red]❌ Forneça termos via --terms ou --file[/red]"
@@ -128,6 +141,7 @@ def search(
 
     # Configurar
     config = ScrapperConfig(
+        search_engine=engine,
         max_results=max_results,
         search_delay_min=delay_min,
         search_delay_max=delay_max,

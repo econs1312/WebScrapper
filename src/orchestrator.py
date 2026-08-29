@@ -1,4 +1,4 @@
-"""Orquestrador principal do WebScrapper."""
+"""Orquestrador principal do WebScrapper com suporte multi-engine."""
 
 from __future__ import annotations
 
@@ -13,11 +13,12 @@ from typing import TYPE_CHECKING
 from src.models import (
     HarnessReport,
     SearchReport,
+    SearchResult,
     SearchStatus,
     TermsInput,
 )
 from src.parser import detect_captcha, detect_no_results, parse_serp_html
-from src.search_provider import GoogleSearchProvider
+from src.search_provider import DuckDuckGoSearchProvider, create_search_provider
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,11 +29,11 @@ logger = logging.getLogger(__name__)
 
 
 class SearchOrchestrator:
-    """Orquestra a busca de múltiplos termos no Google."""
+    """Orquestra a busca de múltiplos termos no Google ou DuckDuckGo."""
 
     def __init__(self, config: ScrapperConfig) -> None:
         self.config = config
-        self.provider = GoogleSearchProvider(config)
+        self.provider = create_search_provider(config)
 
     def load_terms_from_file(self, file_path: Path) -> list[str]:
         """Carrega termos de um arquivo JSON."""
@@ -66,14 +67,15 @@ class SearchOrchestrator:
 
             try:
                 logger.info(
-                    "Tentativa %d/%d para '%s'",
+                    "[%s] Tentativa %d/%d para '%s'",
+                    self.config.search_engine,
                     attempt,
                     self.config.max_retries,
                     term,
                 )
 
                 # Buscar HTML da SERP
-                html = await self.provider.search(term)
+                html = await self.provider.search_raw(term)
                 duration = time.time() - start_time
 
                 # Salvar HTML raw se configurado
@@ -81,30 +83,34 @@ class SearchOrchestrator:
                 if self.config.save_raw_html:
                     raw_html_path = self._save_raw_html(term, html, attempt)
 
-                # Verificar CAPTCHA
-                if detect_captcha(html):
-                    logger.warning("CAPTCHA detectado para '%s' na tentativa %d", term, attempt)
-                    last_error = "CAPTCHA detectado"
-                    if attempt < self.config.max_retries:
-                        backoff = self.config.retry_backoff_base ** attempt
-                        logger.info("Aguardando %.1fs antes de retry...", backoff)
-                        await asyncio.sleep(backoff)
-                    continue
+                results: list[SearchResult] = []
 
-                # Verificar se não há resultados
-                if detect_no_results(html):
-                    return SearchReport(
-                        term=term,
-                        status=SearchStatus.SUCCESS,
-                        results=[],
-                        results_count=0,
-                        duration_seconds=duration,
-                        attempt=attempt,
-                        raw_html_path=raw_html_path,
-                    )
+                if isinstance(self.provider, DuckDuckGoSearchProvider):
+                    results = self.provider.parse_results(html, self.config.max_results)
+                else:
+                    # Google - Verificar CAPTCHA
+                    if detect_captcha(html):
+                        logger.warning("CAPTCHA detectado para '%s' na tentativa %d", term, attempt)
+                        last_error = "CAPTCHA detectado"
+                        if attempt < self.config.max_retries:
+                            backoff = self.config.retry_backoff_base ** attempt
+                            logger.info("Aguardando %.1fs antes de retry...", backoff)
+                            await asyncio.sleep(backoff)
+                        continue
 
-                # Parsear resultados
-                results = parse_serp_html(html, self.config.max_results)
+                    # Verificar se não há resultados
+                    if detect_no_results(html):
+                        return SearchReport(
+                            term=term,
+                            status=SearchStatus.SUCCESS,
+                            results=[],
+                            results_count=0,
+                            duration_seconds=duration,
+                            attempt=attempt,
+                            raw_html_path=raw_html_path,
+                        )
+
+                    results = parse_serp_html(html, self.config.max_results)
 
                 # Determinar status
                 if len(results) >= self.config.max_results:
@@ -113,7 +119,7 @@ class SearchOrchestrator:
                     status = SearchStatus.PARTIAL
                 else:
                     status = SearchStatus.FAILED
-                    last_error = "Nenhum resultado extraído do HTML"
+                    last_error = "Nenhum resultado extraído da busca"
                     if attempt < self.config.max_retries:
                         backoff = self.config.retry_backoff_base ** attempt
                         await asyncio.sleep(backoff)
@@ -208,7 +214,7 @@ class SearchOrchestrator:
         safe_term = "".join(c if c.isalnum() or c == " " else "_" for c in term)
         safe_term = safe_term.replace(" ", "_")[:50]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{safe_term}_{timestamp}_attempt{attempt}.html"
+        filename = f"{self.config.search_engine}_{safe_term}_{timestamp}_attempt{attempt}.html"
         filepath = self.config.raw_html_dir / filename
         filepath.write_text(html, encoding="utf-8")
         logger.debug("HTML raw salvo em: %s", filepath)

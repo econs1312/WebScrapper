@@ -23,13 +23,18 @@ class ScrapperConfig(BaseSettings):
     """Configurações do WebScrapper com valores padrão sensatos."""
 
     # --- Busca ---
+    search_engine: str = Field(default="duckduckgo", description="Mecanismo de busca: 'duckduckgo' ou 'google'")
     max_results: int = Field(default=10, description="Número máximo de resultados por termo")
-    search_delay_min: float = Field(default=2.0, description="Delay mínimo entre buscas (s)")
-    search_delay_max: float = Field(default=5.0, description="Delay máximo entre buscas (s)")
+    search_delay_min: float = Field(default=1.0, description="Delay mínimo entre buscas (s)")
+    search_delay_max: float = Field(default=3.0, description="Delay máximo entre buscas (s)")
     request_timeout: int = Field(default=30000, description="Timeout por requisição (ms)")
     google_base_url: str = Field(
         default="https://www.google.com/search",
         description="URL base do Google Search",
+    )
+    duckduckgo_base_url: str = Field(
+        default="https://html.duckduckgo.com/html/",
+        description="URL base do DuckDuckGo HTML",
     )
 
     # --- Retry ---

@@ -262,8 +262,8 @@ class TestServerEndpoints:
         )
 
         with patch("src.server.SearchOrchestrator.search_term", new_callable=AsyncMock) as mock_search, \
-             patch("src.search_provider.GoogleSearchProvider.start", new_callable=AsyncMock), \
-             patch("src.search_provider.GoogleSearchProvider.stop", new_callable=AsyncMock):
+             patch("src.search_provider.DuckDuckGoSearchProvider.start", new_callable=AsyncMock), \
+             patch("src.search_provider.DuckDuckGoSearchProvider.stop", new_callable=AsyncMock):
             mock_search.return_value = mock_search_report
 
             await _run_scraper_job(config, ["python"])

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.config import ScrapperConfig
-from src.search_provider import GoogleSearchProvider
+from src.search_provider import DuckDuckGoSearchProvider, GoogleSearchProvider
 
 
 class TestGoogleSearchProvider:
@@ -85,3 +85,87 @@ class TestGoogleSearchProvider:
         html = await provider.search("python")
         assert "Fallback content" in html
         mock_page.close.assert_awaited_once()
+
+
+class TestDuckDuckGoSearchProvider:
+    """Testes para o provedor DuckDuckGo."""
+
+    @pytest.fixture()
+    def config(self) -> ScrapperConfig:
+        return ScrapperConfig(search_engine="duckduckgo")
+
+    @pytest.fixture()
+    def provider(self, config: ScrapperConfig) -> DuckDuckGoSearchProvider:
+        return DuckDuckGoSearchProvider(config)
+
+    @pytest.fixture()
+    def ddg_html(self) -> str:
+        return """
+        <html><body>
+        <div class="result results_links">
+          <h2><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fpython.org%2F">Python Official Site</a></h2>
+          <a class="result__snippet">Python is a programming language that lets you work quickly.</a>
+        </div>
+        <div class="result results_links">
+          <h2><a class="result__a" href="https://realpython.com/tutorials/">Real Python Tutorials</a></h2>
+          <a class="result__snippet">Learn Python online with comprehensive tutorials.</a>
+        </div>
+        </body></html>
+        """
+
+    @pytest.mark.asyncio
+    async def test_search_without_start_raises_error(self, provider: DuckDuckGoSearchProvider) -> None:
+        with pytest.raises(RuntimeError, match="Cliente HTTP não iniciado"):
+            await provider.search_raw("python")
+
+    @pytest.mark.asyncio
+    async def test_search_raw_success(self, provider: DuckDuckGoSearchProvider, ddg_html: str) -> None:
+        mock_response = MagicMock()
+        mock_response.text = ddg_html
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        provider._client = mock_client
+
+        html = await provider.search_raw("python")
+        assert "Python Official Site" in html
+        mock_client.post.assert_awaited_once()
+
+    def test_parse_results(self, provider: DuckDuckGoSearchProvider, ddg_html: str) -> None:
+        results = provider.parse_results(ddg_html, max_results=10)
+        assert len(results) == 2
+        assert results[0].position == 1
+        assert results[0].title == "Python Official Site"
+        assert results[0].url == "https://python.org/"
+        assert "programming language" in results[0].snippet
+
+        assert results[1].position == 2
+        assert results[1].title == "Real Python Tutorials"
+        assert results[1].url == "https://realpython.com/tutorials/"
+
+    def test_extract_clean_url(self) -> None:
+        url = DuckDuckGoSearchProvider._extract_clean_url("//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage%3Fid%3D1")
+        assert url == "https://example.com/page?id=1"
+
+        direct_url = DuckDuckGoSearchProvider._extract_clean_url("https://example.org")
+        assert direct_url == "https://example.org"
+
+        empty_url = DuckDuckGoSearchProvider._extract_clean_url("")
+        assert empty_url == ""
+
+
+class TestFactory:
+    """Testes da factory de provedores."""
+
+    def test_create_google_provider(self) -> None:
+        from src.search_provider import GoogleSearchProvider, create_search_provider
+        cfg = ScrapperConfig(search_engine="google")
+        provider = create_search_provider(cfg)
+        assert isinstance(provider, GoogleSearchProvider)
+
+    def test_create_duckduckgo_provider(self) -> None:
+        from src.search_provider import DuckDuckGoSearchProvider, create_search_provider
+        cfg = ScrapperConfig(search_engine="duckduckgo")
+        provider = create_search_provider(cfg)
+        assert isinstance(provider, DuckDuckGoSearchProvider)
