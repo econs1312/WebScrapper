@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-09-03T13:11:05.571239",
+  "metrics": {
+    "total_terms": 3,
+    "successful": 3,
+    "partial": 0,
+    "failed": 0,
+    "blocked": 0,
+    "total_results": 30,
+    "success_rate": 1.0,
+    "total_duration_seconds": 1.836639642715454
+  },
+  "validation": {
+    "is_valid": true,
+    "total_checks": 94,
+    "passed": 94,
+    "warnings": 0,
+    "errors": 0
+  },
+  "terms_status": {
+    "inovação": {
+      "status": "success",
+      "results_count": 10,
+      "duration_seconds": 0.6274406909942627,
+      "attempt": 1,
+      "error": null
+    },
+    "sandbox": {
+      "status": "success",
+      "results_count": 10,
+      "duration_seconds": 0.5489017963409424,
+      "attempt": 1,
+      "error": null
+    },
+    "inteligência artificial": {
+      "status": "success",
+      "results_count": 10,
+      "duration_seconds": 0.660297155380249,
+      "attempt": 1,
+      "error": null
+    }
+  }
+}
